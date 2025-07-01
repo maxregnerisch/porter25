@@ -1,0 +1,255 @@
+# Validation Rules for S906B Android 15 OneUI 6 Porting
+# These rules define safety checks and validation criteria
+
+# Disk Space Requirements
+MIN_DISK_SPACE_GB=150
+RECOMMENDED_DISK_SPACE_GB=200
+
+# Memory Requirements
+MIN_MEMORY_MB=4096
+RECOMMENDED_MEMORY_MB=8192
+
+# File Size Limits
+MIN_ROM_SIZE_MB=2000
+MAX_ROM_SIZE_MB=10000
+MIN_SYSTEM_SIZE_MB=4000
+MAX_SYSTEM_SIZE_MB=8000
+MIN_VENDOR_SIZE_MB=1000
+MAX_VENDOR_SIZE_MB=3000
+
+# Device Compatibility Rules
+COMPATIBLE_MODELS=("SM-S906B" "SM-S906U" "SM-S906N" "s22plus")
+COMPATIBLE_ANDROID_VERSIONS=("14" "15")
+COMPATIBLE_ONEUI_VERSIONS=("6.0" "6.1")
+COMPATIBLE_ARCHITECTURES=("arm64-v8a")
+
+# Essential Files Check
+ESSENTIAL_SYSTEM_FILES=(
+    "framework/framework.jar"
+    "framework/services.jar"
+    "build.prop"
+    "etc/selinux/plat_sepolicy.cil"
+)
+
+ESSENTIAL_VENDOR_FILES=(
+    "build.prop"
+    "etc/vintf/manifest.xml"
+    "lib64/libril.so"
+)
+
+ESSENTIAL_PARTITION_IMAGES=(
+    "system.img"
+    "vendor.img"
+    "boot.img"
+    "vendor_boot.img"
+)
+
+# Filesystem Type Validation
+SUPPORTED_FILESYSTEMS=("erofs" "ext4" "f2fs")
+PREFERRED_FILESYSTEM="erofs"
+
+# Compression Settings
+SUPPORTED_COMPRESSIONS=("lz4" "lz4hc" "lzma" "none")
+RECOMMENDED_COMPRESSION="lz4hc"
+
+# Security Validation
+REQUIRED_SELINUX_CONTEXTS=(
+    "plat_file_contexts"
+    "vendor_file_contexts"
+    "system_ext_file_contexts"
+    "product_file_contexts"
+)
+
+# Bootloader Compatibility
+COMPATIBLE_BOOTLOADERS=("S906BXXU" "S906BUEU" "S906BKSU")
+MIN_BOOTLOADER_VERSION="S906BXXU7"
+
+# Partition Size Validation (in bytes)
+SYSTEM_PARTITION_MIN=4294967296    # 4GB
+SYSTEM_PARTITION_MAX=8589934592    # 8GB
+VENDOR_PARTITION_MIN=1073741824    # 1GB
+VENDOR_PARTITION_MAX=3221225472    # 3GB
+PRODUCT_PARTITION_MIN=536870912    # 512MB
+PRODUCT_PARTITION_MAX=2147483648   # 2GB
+
+# Super Partition Configuration
+SUPER_PARTITION_SIZE=12884901888   # 12GB
+METADATA_SIZE=65536
+METADATA_SLOTS=2
+DYNAMIC_PARTITIONS_GROUP="qti_dynamic_partitions"
+
+# Critical System Apps (must be present)
+CRITICAL_SYSTEM_APPS=(
+    "SystemUI"
+    "Settings"
+    "PackageInstaller"
+    "PermissionController"
+)
+
+# Dangerous Modifications (require extra validation)
+DANGEROUS_MODIFICATIONS=(
+    "bootloader"
+    "recovery"
+    "modem"
+    "tz"
+    "aboot"
+)
+
+# Performance Thresholds
+MAX_BOOT_TIME_SECONDS=120
+MAX_APP_LAUNCH_TIME_SECONDS=10
+MIN_AVAILABLE_RAM_MB=2048
+
+# Network and Connectivity
+REQUIRED_NETWORK_FEATURES=(
+    "android.hardware.wifi"
+    "android.hardware.telephony"
+    "android.hardware.bluetooth"
+)
+
+# Camera and Media
+REQUIRED_CAMERA_FEATURES=(
+    "android.hardware.camera"
+    "android.hardware.camera.front"
+)
+
+# Audio Requirements
+REQUIRED_AUDIO_FEATURES=(
+    "android.hardware.audio.output"
+    "android.hardware.microphone"
+)
+
+# Display Requirements
+MIN_DISPLAY_WIDTH=1080
+MIN_DISPLAY_HEIGHT=2340
+SUPPORTED_DENSITIES=(420 440 450 480)
+
+# Battery and Power
+REQUIRED_POWER_FEATURES=(
+    "android.hardware.battery"
+    "android.software.device_admin"
+)
+
+# Sensors
+REQUIRED_SENSORS=(
+    "android.hardware.sensor.accelerometer"
+    "android.hardware.sensor.gyroscope"
+    "android.hardware.sensor.light"
+    "android.hardware.sensor.proximity"
+)
+
+# Security Features
+REQUIRED_SECURITY_FEATURES=(
+    "android.hardware.fingerprint"
+    "android.software.verified_boot"
+    "android.hardware.keystore"
+)
+
+# Knox Requirements (Samsung specific)
+KNOX_REQUIRED_FILES=(
+    "framework/knoxsdk.jar"
+    "app/KnoxCore"
+    "priv-app/KnoxGuard"
+)
+
+# OneUI Specific Requirements
+ONEUI_REQUIRED_FILES=(
+    "framework/samsung-services.jar"
+    "priv-app/SystemUI"
+    "app/SamsungExperience*"
+)
+
+# Validation Severity Levels
+# CRITICAL: Must pass or abort
+# WARNING: Should pass but can continue with user confirmation
+# INFO: Informational only
+
+CRITICAL_CHECKS=(
+    "disk_space"
+    "file_existence"
+    "archive_integrity"
+    "device_model"
+    "bootloader_compatibility"
+)
+
+WARNING_CHECKS=(
+    "memory_availability"
+    "android_version"
+    "oneui_version"
+    "partition_sizes"
+)
+
+INFO_CHECKS=(
+    "file_sizes"
+    "compression_type"
+    "filesystem_type"
+    "feature_availability"
+)
+
+# Automatic Fix Attempts
+AUTO_FIX_ENABLED=true
+AUTO_FIX_OPERATIONS=(
+    "partition_resize"
+    "compression_optimization"
+    "permission_fix"
+    "selinux_context_fix"
+)
+
+# Backup Requirements
+BACKUP_BEFORE_CRITICAL=true
+BACKUP_RETENTION_DAYS=7
+MAX_BACKUP_SIZE_GB=50
+
+# Logging Configuration
+LOG_LEVEL="INFO"  # DEBUG, INFO, WARNING, ERROR, CRITICAL
+LOG_TO_FILE=true
+LOG_FILE_PATH="logs/validation.log"
+MAX_LOG_SIZE_MB=100
+
+# Recovery Options
+ENABLE_ROLLBACK=true
+ROLLBACK_POINTS=(
+    "pre_extraction"
+    "pre_modification"
+    "pre_creation"
+    "pre_packaging"
+)
+
+# Performance Monitoring
+MONITOR_PERFORMANCE=true
+PERFORMANCE_LOG_INTERVAL=30  # seconds
+ALERT_ON_HIGH_RESOURCE_USAGE=true
+
+# Validation Timeouts (in seconds)
+FILE_OPERATION_TIMEOUT=300
+MOUNT_OPERATION_TIMEOUT=60
+VALIDATION_TIMEOUT=600
+EXTRACTION_TIMEOUT=1800
+
+# Error Handling
+CONTINUE_ON_WARNING=true
+CONTINUE_ON_INFO=true
+ABORT_ON_CRITICAL=true
+MAX_RETRY_ATTEMPTS=3
+
+# Custom Validation Scripts
+CUSTOM_VALIDATION_DIR="safety/custom_validators"
+ENABLE_CUSTOM_VALIDATION=true
+
+# Integration with External Tools
+ENABLE_VIRUS_SCAN=false
+VIRUS_SCANNER_PATH="/usr/bin/clamav"
+ENABLE_STATIC_ANALYSIS=false
+STATIC_ANALYZER_PATH="/usr/bin/android-lint"
+
+# Notification Settings
+ENABLE_NOTIFICATIONS=false
+NOTIFICATION_EMAIL=""
+NOTIFICATION_WEBHOOK=""
+
+# Development Mode Settings
+DEVELOPMENT_MODE=false
+SKIP_NON_CRITICAL_CHECKS=false
+ENABLE_DEBUG_OUTPUT=false
+PRESERVE_TEMP_FILES=false
+
