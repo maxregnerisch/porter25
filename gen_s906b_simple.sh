@@ -1,12 +1,12 @@
 #!/bin/bash
-# Simple S906B Porting: system.img (port) + super.img (base) workflow
-# Usage: ./gen_s906b_simple.sh <super.img> <system.img> <version>
+# S906B Deep Porting Tool: mount -r base, mount -rw port
+# Usage: ./gen_s906b_simple.sh <base_super.img> <port_system.img> <version>
 
 export PATH=$(pwd)/bin:$(pwd)/bin/apktool:$PATH
 
 # Script parameters
-SUPER_IMG_BASE=$1      # Base super.img file
-SYSTEM_IMG_PORT=$2     # Port system.img file  
+SUPER_IMG_BASE=$1      # Base super.img file (mount -r)
+SYSTEM_IMG_PORT=$2     # Port system.img file (mount -rw)
 VERSION=$3             # Output version
 LOCALPATH=$(pwd)
 
@@ -14,25 +14,65 @@ LOCALPATH=$(pwd)
 source "$LOCALPATH/configs/s906b_config.sh"
 source "$LOCALPATH/bin/functions.sh"
 
+# Global variables for mount points
+BASE_MOUNT=""
+PORT_MOUNT=""
+CLEANUP_NEEDED=false
+
+# Cleanup function
+cleanup() {
+    if [ "$CLEANUP_NEEDED" = true ]; then
+        echo "🧹 Cleaning up mount points..."
+        
+        if [ -n "$BASE_MOUNT" ] && mountpoint -q "$BASE_MOUNT" 2>/dev/null; then
+            umount "$BASE_MOUNT" 2>/dev/null
+            echo "   Unmounted base: $BASE_MOUNT"
+        fi
+        
+        if [ -n "$PORT_MOUNT" ] && mountpoint -q "$PORT_MOUNT" 2>/dev/null; then
+            umount "$PORT_MOUNT" 2>/dev/null
+            echo "   Unmounted port: $PORT_MOUNT"
+        fi
+        
+        # Remove mount directories
+        [ -d "$BASE_MOUNT" ] && rmdir "$BASE_MOUNT" 2>/dev/null
+        [ -d "$PORT_MOUNT" ] && rmdir "$PORT_MOUNT" 2>/dev/null
+        
+        echo "✅ Cleanup completed"
+    fi
+}
+
+# Set trap for cleanup
+trap cleanup EXIT INT TERM
+
 # Display usage
 show_usage() {
-    echo "Simple S906B Porting Tool"
-    echo "========================="
+    echo "S906B Deep Porting Tool"
+    echo "======================="
     echo "Usage: $0 <base_super.img> <port_system.img> <version>"
     echo ""
     echo "Parameters:"
-    echo "  base_super.img   - Base super.img file (S906B compatible)"
-    echo "  port_system.img  - System.img to port from"
+    echo "  base_super.img   - Base super.img file (mounted read-only)"
+    echo "  port_system.img  - System.img to port from (mounted read-write)"
     echo "  version         - Output ROM version"
     echo ""
     echo "Example:"
     echo "  $0 s906b_base_super.img s24_system.img v1.0"
     echo ""
-    echo "This will:"
-    echo "  1. Extract partitions from base super.img"
-    echo "  2. Replace system partition with port system.img"
-    echo "  3. Apply S906B optimizations"
-    echo "  4. Create new super.img with ported system"
+    echo "Deep Porting Process:"
+    echo "  1. Mount base super.img read-only (-r)"
+    echo "  2. Mount port system.img read-write (-rw)"
+    echo "  3. Extract and analyze base partitions"
+    echo "  4. Deep port system with comprehensive modifications"
+    echo "  5. Apply S906B hardware optimizations"
+    echo "  6. Patch framework and services"
+    echo "  7. Configure device-specific features"
+    echo "  8. Create optimized super.img"
+    echo ""
+    echo "Requirements:"
+    echo "  - f2fs-tools (for S22 F2FS support)"
+    echo "  - Root privileges (for mounting)"
+    echo "  - 20GB+ free space"
 }
 
 # Validate parameters
@@ -51,18 +91,40 @@ if [[ ! -f "$SYSTEM_IMG_PORT" ]]; then
     exit 1
 fi
 
-echo "🚀 S906B Simple Porting Started"
-echo "================================"
+echo "🚀 S906B Deep Porting Started"
+echo "=============================="
 echo "📦 Base super.img: $SUPER_IMG_BASE"
 echo "📱 Port system.img: $SYSTEM_IMG_PORT"
 echo "🏷️ Version: $VERSION"
 echo ""
 
+# Check root privileges
+if [ "$EUID" -ne 0 ]; then
+    echo "⚠️ Root privileges required for mounting filesystems"
+    echo "💡 Run with: sudo $0 $@"
+    exit 1
+fi
+
+# Check required tools
+echo "🔍 Checking required tools..."
+required_tools=("lpunpack" "lpmake" "simg2img" "mkfs.f2fs" "mount.f2fs")
+for tool in "${required_tools[@]}"; do
+    if ! command -v "$tool" >/dev/null 2>&1; then
+        echo "❌ Missing required tool: $tool"
+        if [[ "$tool" == *"f2fs"* ]]; then
+            echo "💡 Install with: sudo apt install f2fs-tools"
+        fi
+        exit 1
+    fi
+done
+echo "✅ All required tools available"
+
 # Setup working directories
 echo "🏗️ Setting up workspace..."
-mkdir -p work/{base_extracted,system_work,output}
+mkdir -p work/{base_extracted,port_work,output,mounts}
+CLEANUP_NEEDED=true
 
-# Step 1: Extract base super.img
+# Step 1: Extract base super.img partitions
 echo "📦 Extracting base super.img..."
 cd work/base_extracted
 
@@ -81,17 +143,144 @@ echo "📂 Extracting partitions from super.img..."
 
 # List extracted partitions
 echo "✅ Extracted partitions:"
-ls -lh *.img
+ls -lh *.img | while read -r line; do
+    echo "   $line"
+done
 
 cd "$LOCALPATH"
 
-# Step 2: Process port system.img
-echo "🛠️ Processing port system.img..."
-cd work/system_work
+# Step 2: Mount base system partition (read-only)
+echo "🔗 Mounting base system partition (read-only)..."
+BASE_SYSTEM_IMG="work/base_extracted/system.img"
+
+if [ ! -f "$BASE_SYSTEM_IMG" ]; then
+    echo "❌ Base system.img not found in super.img"
+    exit 1
+fi
+
+BASE_MOUNT="work/mounts/base_system"
+mkdir -p "$BASE_MOUNT"
+
+# Detect and mount base filesystem
+base_fs_type=$(file "$BASE_SYSTEM_IMG" | grep -o -E "(F2FS|EROFS|ext[234])" | head -1)
+echo "📦 Base system filesystem: $base_fs_type"
+
+case "$base_fs_type" in
+    "F2FS")
+        if ! mount -t f2fs -o loop,ro,norecovery "$BASE_SYSTEM_IMG" "$BASE_MOUNT"; then
+            echo "❌ Failed to mount base F2FS system"
+            exit 1
+        fi
+        ;;
+    "EROFS")
+        if ! mount -t erofs -o loop,ro "$BASE_SYSTEM_IMG" "$BASE_MOUNT"; then
+            echo "❌ Failed to mount base EROFS system"
+            exit 1
+        fi
+        ;;
+    "ext4"|"ext3"|"ext2")
+        if ! mount -t ext4 -o loop,ro "$BASE_SYSTEM_IMG" "$BASE_MOUNT"; then
+            echo "❌ Failed to mount base EXT4 system"
+            exit 1
+        fi
+        ;;
+    *)
+        echo "❌ Unsupported base filesystem: $base_fs_type"
+        exit 1
+        ;;
+esac
+
+echo "✅ Base system mounted at: $BASE_MOUNT"
+
+# Step 3: Mount port system.img (read-write)
+echo "🔗 Mounting port system.img (read-write)..."
+PORT_MOUNT="work/mounts/port_system"
+mkdir -p "$PORT_MOUNT"
+
+# Detect port filesystem
+port_fs_type=$(file "$SYSTEM_IMG_PORT" | grep -o -E "(F2FS|EROFS|ext[234])" | head -1)
+echo "📦 Port system filesystem: $port_fs_type"
+
+case "$port_fs_type" in
+    "F2FS")
+        if ! mount -t f2fs -o loop,rw "$SYSTEM_IMG_PORT" "$PORT_MOUNT"; then
+            echo "❌ Failed to mount port F2FS system"
+            exit 1
+        fi
+        ;;
+    "EROFS")
+        echo "⚠️ EROFS is read-only, creating writable copy..."
+        cp "$SYSTEM_IMG_PORT" "work/port_system_rw.img"
+        # Convert EROFS to F2FS for write access
+        mkdir -p work/erofs_temp
+        if mount -t erofs -o loop,ro "$SYSTEM_IMG_PORT" work/erofs_temp; then
+            # Calculate size and create F2FS image
+            content_size=$(du -sb work/erofs_temp | cut -f1)
+            img_size=$((content_size * 130 / 100))  # 30% overhead
+            img_size=$(((img_size + 4194303) / 4194304 * 4194304))  # 4MB boundary
+            
+            dd if=/dev/zero of=work/port_system_f2fs.img bs=1 count=0 seek=$img_size 2>/dev/null
+            mkfs.f2fs -f -l system work/port_system_f2fs.img
+            
+            if mount -t f2fs -o loop,rw work/port_system_f2fs.img "$PORT_MOUNT"; then
+                cp -a work/erofs_temp/* "$PORT_MOUNT/"
+                sync
+                echo "✅ Converted EROFS to F2FS for write access"
+            else
+                echo "❌ Failed to create writable F2FS from EROFS"
+                exit 1
+            fi
+            umount work/erofs_temp
+            rmdir work/erofs_temp
+        else
+            echo "❌ Failed to read EROFS system"
+            exit 1
+        fi
+        ;;
+    "ext4"|"ext3"|"ext2")
+        if ! mount -t ext4 -o loop,rw "$SYSTEM_IMG_PORT" "$PORT_MOUNT"; then
+            echo "❌ Failed to mount port EXT4 system"
+            exit 1
+        fi
+        ;;
+    *)
+        echo "❌ Unsupported port filesystem: $port_fs_type"
+        exit 1
+        ;;
+esac
+
+echo "✅ Port system mounted at: $PORT_MOUNT"
+
+# Step 4: Deep Analysis and Porting
+echo "🔍 Starting deep analysis and porting..."
 
 # Extract port system.img
 echo "📂 Extracting port system.img..."
-if file "$LOCALPATH/$SYSTEM_IMG_PORT" | grep -q "EROFS"; then
+if file "$LOCALPATH/$SYSTEM_IMG_PORT" | grep -q "F2FS"; then
+    echo "📦 Detected F2FS filesystem (S22 series)"
+    mkdir -p system_extracted system_content
+    
+    # Try to mount F2FS
+    if mount -t f2fs -o loop,ro "$LOCALPATH/$SYSTEM_IMG_PORT" system_extracted 2>/dev/null; then
+        echo "✅ Mounted F2FS system.img"
+        cp -a system_extracted/* system_content/
+        umount system_extracted
+        rmdir system_extracted
+    else
+        echo "⚠️ Could not mount F2FS directly, trying alternative methods..."
+        # Try with different mount options
+        if mount -t f2fs -o loop,ro,norecovery "$LOCALPATH/$SYSTEM_IMG_PORT" system_extracted 2>/dev/null; then
+            echo "✅ Mounted F2FS system.img with norecovery option"
+            cp -a system_extracted/* system_content/
+            umount system_extracted
+            rmdir system_extracted
+        else
+            echo "❌ F2FS extraction failed - ensure f2fs-tools is installed"
+            echo "💡 Install with: sudo apt install f2fs-tools"
+            exit 1
+        fi
+    fi
+elif file "$LOCALPATH/$SYSTEM_IMG_PORT" | grep -q "EROFS"; then
     echo "📦 Detected EROFS filesystem"
     mkdir -p system_extracted
     
@@ -104,7 +293,6 @@ if file "$LOCALPATH/$SYSTEM_IMG_PORT" | grep -q "EROFS"; then
         rmdir system_extracted
     else
         echo "⚠️ Could not mount EROFS, trying alternative extraction..."
-        # Alternative extraction method would go here
         mkdir -p system_content
         echo "❌ EROFS extraction failed - manual intervention required"
         exit 1
@@ -124,6 +312,8 @@ elif file "$LOCALPATH/$SYSTEM_IMG_PORT" | grep -q "ext[234]"; then
     fi
 else
     echo "❌ Unknown filesystem type in system.img"
+    echo "💡 Supported: F2FS (S22 series), EROFS, EXT4"
+    file "$LOCALPATH/$SYSTEM_IMG_PORT"
     exit 1
 fi
 
@@ -177,15 +367,36 @@ elif [ -f "$LOCALPATH/patches/plat_file_contexts" ]; then
     file_contexts="$LOCALPATH/patches/plat_file_contexts"
 fi
 
-# Create EROFS system.img
-mkfs_cmd="mkfs.erofs -zlz4hc --ignore-mtime"
-if [ -n "$file_contexts" ]; then
-    mkfs_cmd="$mkfs_cmd --file-contexts=$file_contexts"
-fi
-mkfs_cmd="$mkfs_cmd system.img ../system_work/system_content/"
+# Create F2FS system.img (S22 series uses F2FS)
+echo "🔨 Creating F2FS system.img for S906B..."
 
-echo "🔨 Running: $mkfs_cmd"
-eval "$mkfs_cmd"
+# Calculate required size
+content_size=$(du -sb ../system_work/system_content/ | cut -f1)
+# Add 20% overhead for F2FS metadata
+img_size=$((content_size * 120 / 100))
+# Round up to nearest 4MB boundary
+img_size=$(((img_size + 4194303) / 4194304 * 4194304))
+
+echo "📊 Content size: $((content_size/1024/1024))MB"
+echo "📊 Image size: $((img_size/1024/1024))MB"
+
+# Create F2FS image
+dd if=/dev/zero of=system.img bs=1 count=0 seek=$img_size 2>/dev/null
+mkfs.f2fs -f -l system system.img
+
+# Mount and copy content
+mkdir -p system_mount
+if mount -t f2fs -o loop system.img system_mount; then
+    echo "✅ Mounted F2FS system.img for writing"
+    cp -a ../system_work/system_content/* system_mount/
+    sync
+    umount system_mount
+    rmdir system_mount
+    echo "✅ F2FS system.img created successfully"
+else
+    echo "❌ Failed to mount F2FS system.img for writing"
+    exit 1
+fi
 
 if [ $? -eq 0 ]; then
     echo "✅ System.img created successfully"
@@ -321,7 +532,7 @@ echo "🧹 Cleaning up..."
 rm -rf work/
 
 echo ""
-echo "🎉 S906B Porting Completed Successfully!"
+echo "�� S906B Porting Completed Successfully!"
 echo "========================================"
 echo "📦 Output files:"
 ls -lh out/
