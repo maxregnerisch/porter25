@@ -37,7 +37,12 @@ This enhanced porting tool provides comprehensive ROM development capabilities s
 
 ## 🚀 Quick Start
 
-### Basic S906B Porting
+### Simple Porting (system.img + super.img)
+```bash
+./gen_s906b_simple.sh base_super.img port_system.img v1.0
+```
+
+### Advanced Porting (Full ROM files)
 ```bash
 ./gen_s906b.sh S906B_Base.zip S24_Source.zip OneUI6_Update.zip v1.0
 ```
